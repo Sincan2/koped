@@ -1,38 +1,34 @@
-# koped-safe.ps1
-# Versi aman & transparan dari koped.ps1
-# Alur: unduh .cmd -> scan isi -> jika aman jalankan -> jika diminta hapus
-# WARNING: Skrip ini TIDAK akan mengeksekusi file yang berisi pola bypass lisensi.
+# koped.ps1 (VERSI AMAN - Bahasa Indonesia)
+# Alur: unduh .cmd -> scan isi -> jika aman jalankan di cmd /K -> tanya hapus
+# Skrip ini TIDAK akan mengeksekusi file yang berisi pola bypass lisensi / modifikasi registry.
 
 [System.Net.ServicePointManager]::SecurityProtocol =
     [System.Net.SecurityProtocolType]::Tls12
 
-# URL yang akan diunduh (sama seperti aslinya)
+# URL file .cmd (sama pola aslinya)
 $DownloadURL = 'https://raw.githubusercontent.com/Sincan2/koped/refs/heads/main/koped.cmd'
 $FilePath = Join-Path $env:TEMP 'IDMA.cmd'
-$LogPath = Join-Path $env:TEMP 'koped-safe.log'
+$LogPath  = Join-Path $env:TEMP 'koped-safe.log'
 
-Function Log {
-    param([string]$Text)
-    $t = "{0:yyyy-MM-dd HH:mm:ss} {1}" -f (Get-Date), $Text
-    $t | Out-File -FilePath $LogPath -Append -Encoding UTF8
-    Write-Host $Text
+function Log($txt) {
+    $line = "{0:yyyy-MM-dd HH:mm:ss} {1}" -f (Get-Date), $txt
+    $line | Out-File -FilePath $LogPath -Append -Encoding UTF8
+    Write-Host $txt
 }
 
-Log "Mulai: mengunduh $DownloadURL ke $FilePath ..."
-
+Log "Mulai: mengunduh $DownloadURL ..."
 try {
-    # Unduh (lebih kompatibel: Invoke-WebRequest)
     Invoke-WebRequest -Uri $DownloadURL -UseBasicParsing -OutFile $FilePath -ErrorAction Stop
-    Log "✅ Berhasil unduh file."
+    Log "✅ Berhasil unduh ke: $FilePath"
 } catch {
     Log "❌ Gagal mengunduh: $($_.Exception.Message)"
-    Write-Host "Tekan ENTER untuk keluar..." ; Read-Host > $null
+    Write-Host "Gagal mengunduh file. Cek koneksi atau URL."
+    Read-Host "Tekan ENTER untuk keluar..." > $null
     exit 1
 }
 
-# Pastikan file ada dan ukurannya wajar
 if (-not (Test-Path $FilePath)) {
-    Log "❌ File tidak ditemukan setelah unduh."
+    Log "❌ File tidak ada setelah unduh."
     Read-Host "Tekan ENTER untuk keluar..." > $null
     exit 1
 }
@@ -40,27 +36,39 @@ if (-not (Test-Path $FilePath)) {
 $size = (Get-Item $FilePath).Length
 Log "Info file: $FilePath ($size bytes)."
 
-# BACA ISI dan scan untuk pola berisiko (kamu bisa tambahkan kata kunci lain)
+# Pola yang dianggap berisiko — tambahkan jika perlu
 $dangerPatterns = @(
-    'HKCU\\Software\\DownloadManager',
-    'HKLM\\SOFTWARE\\Wow6432Node\\Internet Download Manager',
-    'HKLM\\Software\\Internet Download Manager',
-    'Serial', 'AdvIntDriverEnabled', 'TakeOwnership',
-    'reg add', 'reg delete', 'reg query', 'regedit',
-    'SetRegistry', 'HKEY_LOCAL_MACHINE', 'HKEY_CURRENT_USER'
+    'hkcu\software\downloadmanager',
+    'hklm\software\internet download manager',
+    'hklm\software\wow6432node\internet download manager',
+    'hkey_local_machine',
+    'hkey_current_user',
+    'reg add',
+    'reg delete',
+    'regedit',
+    'setacl',
+    'takeown',
+    'takeownership',
+    'advintdriverenabled',
+    'serial',
+    'sc create',
+    'sc stop',
+    'sebackupprivilege',
+    'setacl',
+    'runas',
+    'openasadmin'
 )
 
-$contents = Get-Content -LiteralPath $FilePath -Raw -ErrorAction SilentlyContinue
-
-if ($null -eq $contents) {
-    Log "❌ Gagal baca isi file. Mungkin file corrupt."
+# Baca isi dan periksa pola
+try {
+    $contents = Get-Content -LiteralPath $FilePath -Raw -ErrorAction Stop
+} catch {
+    Log "❌ Gagal baca file: $($_.Exception.Message)"
     Read-Host "Tekan ENTER untuk keluar..." > $null
     exit 1
 }
 
-# Normalisasi untuk cek (case-insensitive)
 $lc = $contents.ToLowerInvariant()
-
 $found = @()
 foreach ($pat in $dangerPatterns) {
     if ($lc.Contains($pat.ToLower())) {
@@ -69,43 +77,38 @@ foreach ($pat in $dangerPatterns) {
 }
 
 if ($found.Count -gt 0) {
-    Log "⚠️ DITEMUKAN pola berisiko di dalam file:"
+    Log "⚠️ Terdeteksi pola berisiko di file:"
     foreach ($f in $found) { Log "   - $f" }
     Write-Host ""
-    Write-Host "File berisi perintah/keyword yang terindikasi berpotensi untuk memodifikasi registry / lisensi."
-    Write-Host "Untuk alasan keamanan dan kepatuhan, skrip ini TIDAK akan mengeksekusi file tersebut."
+    Write-Host "File mengandung keyword yang berpotensi memodifikasi registry / lisensi."
+    Write-Host "Untuk keamanan dan kepatuhan, EKSEKUSI DIBATALKAN."
+    Write-Host "Lokasi file: $FilePath"
+    Write-Host "Jika Anda yakin aman, periksa file manual (Notepad) dan jalankan manual."
     Write-Host ""
-    Write-Host "Lokasi file yang diunduh: $FilePath"
-    Write-Host "Jika Anda yakin file aman, buka dan periksa isinya manual (Notepad), atau hapus keyword berbahaya, lalu jalankan manual."
-    Write-Host ""
-    Log "Aksi: eksekusi DIBATALKAN karena pola berisiko."
+    Log "Aksi: eksekusi dibatalkan."
     Read-Host "Tekan ENTER untuk keluar..." > $null
     exit 2
 }
 
-# Jika aman -> jalankan di jendela CMD baru dengan /K supaya terlihat output dan tidak menutup langsung
+# Jika aman -> jalankan pada jendela baru agar terlihat output
 Log "✅ Tidak ditemukan pola berbahaya. Menjalankan file di jendela baru (cmd.exe /K)."
+
 try {
     Start-Process -FilePath "cmd.exe" -ArgumentList "/K `"$FilePath`"" -WindowStyle Normal
-    Log "Proses cmd.exe diluncurkan."
+    Log "cmd.exe diluncurkan dengan argumen /K $FilePath"
 } catch {
-    Log "❌ Gagal jalankan cmd.exe: $($_.Exception.Message)"
+    Log "❌ Gagal menjalankan cmd.exe: $($_.Exception.Message)"
     Read-Host "Tekan ENTER untuk keluar..." > $null
     exit 3
 }
 
-# Tanyakan apakah ingin menghapus file setelah run
-Write-Host ""
+# Tanyakan apakah ingin menghapus file .cmd setelah run
 $ans = Read-Host "Hapus file $FilePath dari TEMP? (y/N)"
 if ($ans.Trim().ToLower() -eq 'y') {
-    try {
-        Remove-Item -LiteralPath $FilePath -Force -ErrorAction Stop
-        Log "File dihapus: $FilePath"
-    } catch {
-        Log "⚠️ Gagal hapus file: $($_.Exception.Message)"
-    }
+    try { Remove-Item -LiteralPath $FilePath -Force -ErrorAction Stop; Log "File dihapus: $FilePath" }
+    catch { Log "⚠️ Gagal hapus file: $($_.Exception.Message)" }
 } else {
-    Log "File dibiarkan di: $FilePath"
+    Log "File dibiarkan: $FilePath"
 }
 
 Log "Selesai."
